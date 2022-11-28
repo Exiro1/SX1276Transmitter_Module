@@ -1,0 +1,9 @@
+BUILD
+?mbed
+?cache
+mbed
+?clangd
+compile_commands?json
+SX1276Lib
+SDFileSystem
+SDFileSystem/FATFileSystem
