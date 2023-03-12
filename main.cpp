@@ -15,7 +15,7 @@
 #define SERIAL_BUFFER_SIZE 255
 
 //taille des données reçu (Serial)
-#define SERIAL_DATA_SIZE 100
+#define SERIAL_DATA_SIZE 255
 
 
 UpdateState_t updState = HS;
@@ -118,12 +118,12 @@ int main( void )
     pcCOM.printf("Starting Update process...\r\n" );
 
     
-    OTA_update();   
+    //OTA_update();   
     changeConfig(0);
 
     pcCOM.printf("CONFIG SET %u %u %u %u %u %u %u\n",conf.freq,conf.datarate,conf.coderate,conf.power,conf.bandwidth,conf.dev, conf.type);
     pcCOM.printf("Starting sending process...\r\n" );
-
+    
 
     processingLoop();
 
@@ -137,6 +137,7 @@ int main( void )
 void init_serial()
 {
     pcCOM.printf("Init MCU Serial\n\r");
+    mcuCOM.baud (115200);
     mcuCOM.attach(&serialRX_ISR,Serial::RxIrq);
 }
 void init_lora()
@@ -382,16 +383,28 @@ volatile char SerialBuffer[SERIAL_BUFFER_SIZE];
 volatile char SerialSecondBuffer[SERIAL_BUFFER_SIZE];
 volatile uint16_t SerialIndex = 0;
 volatile uint8_t new_data = 0;
+volatile uint8_t serial_data_size = 0;
+volatile uint8_t reading = 0;
 
 void serialRX_ISR(void)
 {
     while(mcuCOM.readable())
     {    
-        SerialBuffer[SerialIndex] = mcuCOM.getc();
-        if(SerialIndex==SERIAL_DATA_SIZE-1) {
-            memcpy((void*)SerialSecondBuffer, (void*) SerialBuffer, SERIAL_DATA_SIZE);
+        char c = mcuCOM.getc();
+
+        if(reading==0){
+            serial_data_size = (uint8_t) c;
+            reading = 1;
+            continue;
+        }
+        SerialBuffer[SerialIndex] = c;
+        //pcCOM.printf("%c",c);
+        if(SerialIndex==serial_data_size-1) {
+            memcpy((void*)SerialSecondBuffer, (void*) SerialBuffer, serial_data_size);
             SerialIndex = 0;
             new_data = 1;
+            reading = 0;
+            //pcCOM.printf("\n\r");
             return;
         }
         SerialIndex++;
@@ -405,6 +418,7 @@ void updateLoop()
 
 void processingLoop()
 {
+    
     bool ready_to_TX = false;
     wait_ms(500);
     setRF(conf,&Radio,true);
@@ -433,6 +447,7 @@ void processingLoop()
             }
             case TX_TIMEOUT:
                 pcCOM.printf("TX TIMEOUT");
+                State = LOWPOWER;
                 break;
             case LOWPOWER:
                 break;
@@ -443,6 +458,7 @@ void processingLoop()
         //if we have new data ready to be sent and transmitter is ready to transmit
         if(ready_to_TX && new_data == 1){
             ready_to_TX = false;
+            pcCOM.printf("NEW FRAME READY");
             currentFrameType = pattern[indexType];
             sendFrame(currentFrameType);
             indexType++;
@@ -450,7 +466,6 @@ void processingLoop()
                 indexType = 0;
         }
     }
-
 }
 
 void sendFrame(uint8_t type)
@@ -533,11 +548,11 @@ void add_full_time(uint8_t *frames, uint16_t *frameIndex, uint16_t *totalSize)
 
 void add_serial_data(uint8_t *frames, uint16_t *frameIndex, uint16_t *totalSize)
 {
-        uint8_t dataSerial[SERIAL_DATA_SIZE];
-        memcpy(dataSerial, (void*) SerialSecondBuffer, SERIAL_DATA_SIZE);
+        uint8_t dataSerial[serial_data_size];
+        memcpy(dataSerial, (void*) SerialSecondBuffer, serial_data_size);
         //mcuCOM.printf("OK");
         new_data = 0;
-        for(uint8_t i=0; i<SERIAL_DATA_SIZE; i++) {
+        for(uint8_t i=0; i<serial_data_size; i++) {
             frames[*frameIndex] = dataSerial[i];
             *frameIndex +=1;
             *totalSize += 8;
